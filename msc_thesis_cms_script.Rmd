@@ -1,0 +1,180 @@
+---
+title: "Characterising Therapeutic Vulnerabilities in Colorectal Cancer"
+name: Ali Ali (support by Kathryn Gilroy)
+output: html_document
+date created: "2020-06-01"
+date revised: "2024-06-25"
+---
+
+```{r}
+#load cmscaller library - installation and package dependencies can be found at https://github.com/Lothelab/CMScaller
+library(CMScaller)
+```
+
+### 1. DATA PRE-PROCESSING
+
+### 1.1 Input Data
+```{r}
+#load raw RNA-seq data file
+data <- read.csv("AK_AKP_drug_treated_raw_counts.csv", header = T)
+
+#set ENSEMBL_IDs as row names then trim to transcript counts
+rownames(data) <- data[,1]
+data.trim <- data[,2:41]
+```
+
+### 1.2 Annotate Data with Human Entrez IDs
+```{r}
+#load annotations key file (tab separated)
+key <- read.table("mouse_human_Entrez_Ids.txt", header = TRUE, sep = "\t")
+
+#rename columns then trim to mouse ensembl and human entrez
+colnames(key) <- c("Mouse ENS ID", "Mouse Entrez ID", "Human Ens ID", "Human Entrez ID")
+key <- key[,c(1,4)]
+
+#filter data to include only ensembl ids present in the key
+data.trim.2 <- data.trim[which(rownames(data.trim) %in% key$`Mouse ENS ID`),] #20424 genes
+
+#filter key to include only those present in datasheet
+key.trim <- key[which(key$`Mouse ENS ID` %in% rownames(data.trim.2)),] 
+
+#remove duplicates 
+key.trim2 <- key.trim[!duplicated(key.trim$`Mouse ENS ID`),] #20424 genes
+
+#sort datasheet and key so they can be directly compared
+data.trim.2 <- data.trim.2[order(rownames(data.trim.2)),]
+key.trim2 <- key.trim2[order(key.trim2$`Mouse ENS ID`),]
+
+#append entrez id column from the key to the datasheet
+data.trim.2$Entrez <- key.trim2$`Human Entrez ID`
+
+#remove duplicate entrez ids
+data.trim.3 <- data.trim.2[!duplicated(data.trim.2$Entrez),] #16932 IDs
+
+#assign entrez ids as row names
+rownames(data.trim.3) <- data.trim.3$Entrez #error
+
+#identify missing id
+which(is.na(data.trim.3$Entrez)) #row 65
+
+#remove missing id row
+data.trim.3 <- data.trim.3[-65,]
+
+#assign entrez ids as row names again
+rownames(data.trim.3) <- data.trim.3$Entrez
+
+#remove the Entrez IDs column
+data.trim.3 <- data.trim.3[,1:40]
+```
+
+### 2. FIND CMS AND CRIS CALLS
+
+### 2.1 CMS Calls
+```{r}
+#run the caller
+cms <- CMScaller(data.trim.3, RNAseq=TRUE, doPlot=TRUE)
+
+#save output data
+write.csv(cms, "CMScaller_CMS_Classes_AK_AKP_drug_treated.csv", row.names = T)
+```
+
+### 2.2 CRIS Calls
+```{r}
+#run the caller, chamge templates from default CMS to CRIS
+cris <- CMScaller(data.trim.3, RNAseq=TRUE, templates=CMScaller::templates.CRIS, doPlot=TRUE)
+
+#save output data
+write.csv(cris, "CMScaller_CRIS_Classes_AK_AKP_drug_treated.csv", row.names = T)
+```
+
+### 3. PLOT HEATMAPS
+
+### 3.1.1 Find Average CMS Call Per Group
+```{r}
+#trim cms dataframe to distance values only
+cms.trim <- cms[,2:5]
+
+#transform distance to 1-distance so that larger values represent stronger correlations
+cms.trim <- 1-cms.trim
+
+#rename columns
+colnames(cms.trim) <- c("CMS1", "CMS2", "CMS3", "CMS4")
+
+#transpose dataframe
+cms.trim2 <- data.frame(t(cms.trim))
+
+#find average cms values per group
+cms.trim2$AK.2014 <- rowMeans(cms.trim2[,1:4])
+cms.trim2$AK.6244 <- rowMeans(cms.trim2[,5:8])
+cms.trim2$AK.6244.2014 <- rowMeans(cms.trim2[,9:12])
+cms.trim2$AK.6244.8186 <- rowMeans(cms.trim2[,13:16])
+cms.trim2$AK.8186 <- rowMeans(cms.trim2[,17:20])
+cms.trim2$AK.Vehicle <- rowMeans(cms.trim2[,21:24])
+cms.trim2$AKP.2014 <- rowMeans(cms.trim2[,25:28])
+cms.trim2$AKP.6244 <- rowMeans(cms.trim2[,29:32])
+cms.trim2$AKP.6244.2014 <- rowMeans(cms.trim2[,33:36])
+cms.trim2$AKP.Vehicle <- rowMeans(cms.trim2[,37:40])
+
+#trim to average cms scores
+cms.trim3 <- cms.trim2[,41:50]
+
+#rename columns
+colnames(cms.trim3) <- c(
+  "AK 2014", "AK 6244", "AK 6244.2014", "AK 6244.8186", "AK 8186", "AK Vehicle", 
+  "AKP 2014", "AKP 6244", "AKP 6244.2014", "AKP Vehicle")
+
+#save output data
+write.csv(cms.trim3, "AK_AKP_drug_treated_average_CMS_calls.csv", row.names = T)
+```
+
+### 3.1.2 Plot CMS Calls Heatmap
+```{r}
+#scale row to show which cms is the highest correlation per drug treatment (Clustering turned off)
+png("CMS calls AK AKP genotypes.png")
+heatmap(as.matrix(t(cms.trim3)), scale = "row", margins = c(12,12), Colv = NA, Rowv = NA, main= "CMS",col = colorRampPalette(c("blue", "white","red"))(100))
+```
+
+### 3.2.1 Find Average CRIS Call Per Group
+```{r}
+#trim cris dataframe to distance values only
+cris.trim <- cris[,2:6]
+
+#transform distance to 1-distance so that larger values represent stronger correlations
+cris.trim <- 1-cris.trim
+
+#rename columns
+colnames(cris.trim) <- c("CRIS-A", "CRIS-B", "CRIS-C", "CRIS-D", "CRIS-E")
+
+#transpose dataframe
+cris.trim2 <- data.frame(t(cris.trim))
+
+#find average cris values per group
+cris.trim2$AK.2014 <- rowMeans(cris.trim2[,1:4])
+cris.trim2$AK.6244 <- rowMeans(cris.trim2[,5:8])
+cris.trim2$AK.6244.2014 <- rowMeans(cris.trim2[,9:12])
+cris.trim2$AK.6244.8186 <- rowMeans(cris.trim2[,13:16])
+cris.trim2$AK.8186 <- rowMeans(cris.trim2[,17:20])
+cris.trim2$AK.Vehicle <- rowMeans(cris.trim2[,21:24])
+cris.trim2$AKP.2014 <- rowMeans(cris.trim2[,25:28])
+cris.trim2$AKP.6244 <- rowMeans(cris.trim2[,29:32])
+cris.trim2$AKP.6244.2014 <- rowMeans(cris.trim2[,33:36])
+cris.trim2$AKP.Vehicle <- rowMeans(cris.trim2[,37:40])
+
+#trim to average cris scores
+cris.trim3 <- cris.trim2[,41:50]
+
+#rename columns
+colnames(cris.trim3) <- c(
+  "AK 2014", "AK 6244", "AK 6244.2014", "AK 6244.8186", "AK 8186", "AK Vehicle", 
+  "AKP 2014", "AKP 6244", "AKP 6244.2014", "AKP Vehicle")
+
+#save output data
+write.csv(cris.trim3, "AK_AKP_drug_treated_average_CRIS_calls.csv", row.names = T)
+```
+
+### 3.2.2 Plot CRIS Calls Heatmap
+```{r}
+#scale row to show which cris is the highest correlation per drug treatment (clustering turned off)
+png("CRIS calls AK AKP genotypes.png")
+heatmap(as.matrix(t(cris.trim3)), scale = "row", margins = c(12,12), Colv = NA, Rowv = NA, main= "CRIS",col = colorRampPalette(c("blue", "white","red"))(100))
+```
